@@ -32,11 +32,11 @@ function M.create_note()
 end
 
 function M.list_notes()
-	require("notes.telescope").find_notes(require("telescope.themes").get_dropdown({}))
+	require("notes.picker").find_notes()
 end
 
 function M.list_notes_by_tag()
-	require("notes.telescope").find_notes_by_tag(require("telescope.themes").get_dropdown({}))
+	require("notes.picker").find_notes_by_tag()
 end
 
 function M.backup_notes()
@@ -50,7 +50,7 @@ function M.fetch_notes()
 end
 
 function M.delete_note()
-	require("notes.telescope").delete_note(require("telescope.themes").get_dropdown({}))
+	require("notes.picker").delete_note()
 end
 
 function M.note_history()
@@ -62,11 +62,11 @@ function M.note_history()
 		return
 	end
 	
-	require("notes.telescope").view_file_history(filepath, require("telescope.themes").get_dropdown({}))
+	require("notes.browser").file_history(filepath)
 end
 
 function M.notes_history()
-	require("notes.telescope").view_all_history(require("telescope.themes").get_dropdown({}))
+	require("notes.browser").all_history()
 end
 
 function M.setup()

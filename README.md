@@ -1,24 +1,28 @@
 # notes.nvim
 
-A Neovim plugin for managing markdown notes with git version control and Telescope integration.
+A Neovim plugin for managing markdown notes with git version control, fzf fuzzy finding, and an interactive commit browser.
 
 ## Features
 
 - 📝 Create notes with titles and optional tags
 - 📁 Organize notes by date (Year/Month/Day/title.md structure)
-- 🔍 Browse and search notes with Telescope
+- 🔍 Browse and search notes with fzf and ripgrep
 - 🏷️ Filter notes by tags
 - 🔄 Git version control with automatic backup
 - 🗑️ Delete notes with confirmation (git-aware)
 - 🌐 Optional remote repository sync
-- 📜 View commit history for individual notes or all notes
-- ⏪ Revert notes to previous versions
+- 📜 Interactive commit browser with previews
+- ⏪ Revert notes to previous versions from commit browser
+- 🔀 View diffs between commits
+- 📂 Browse files in specific commits
 
 ## Requirements
 
 - Neovim >= 0.8.0
-- [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
+- [fzf](https://github.com/junegunn/fzf) - fuzzy finder
 - git (for version control features)
+- [bat](https://github.com/sharkdp/bat) - optional, for syntax highlighting in previews
+- [ripgrep](https://github.com/BurntSushi/ripgrep) - optional, for content search
 
 ## Installation
 
@@ -27,9 +31,6 @@ A Neovim plugin for managing markdown notes with git version control and Telesco
 ```lua
 {
   "darwincereska/notes.nvim",
-  dependencies = {
-    "nvim-telescope/telescope.nvim",
-  },
   config = function()
     require("notes").setup({
       notes_dir = vim.fn.expand("~/.notes"),
@@ -45,9 +46,6 @@ A Neovim plugin for managing markdown notes with git version control and Telesco
 ```lua
 use {
   "darwincereska/notes.nvim",
-  requires = {
-    "nvim-telescope/telescope.nvim",
-  },
   config = function()
     require("notes").setup({
       notes_dir = vim.fn.expand("~/.notes"),
@@ -91,10 +89,10 @@ date: 2025-10-20 14:30:00
 ```
 
 #### `:Notes`
-Open Telescope picker to browse all notes with preview. Press `<CR>` to open a note.
+Open fzf picker to browse all notes with preview. Uses bat for syntax highlighting if available. Press `<CR>` to open a note.
 
 #### `:NoteTags`
-Open Telescope picker showing only notes that have tags. Filter and search by tag names.
+Open fzf picker showing only notes that have tags. Filter and search by tag names with live preview.
 
 #### `:NotesBackup`
 Commit all changes to git and push to remote (if configured). Automatically stages all files.
@@ -103,17 +101,25 @@ Commit all changes to git and push to remote (if configured). Automatically stag
 Fetch updates from the remote repository (if configured).
 
 #### `:NoteDelete`
-Open Telescope picker to select a note for deletion. Confirmation prompt will appear before deletion. If git is enabled, uses `git rm` to properly remove the file from version control.
+Open fzf picker to select a note for deletion. Confirmation prompt will appear before deletion. If git is enabled, uses `git rm` to properly remove the file from version control and commits the change.
 
 #### `:NoteHistory`
-View the git commit history for the currently open note. Select a commit to:
-- **View**: See the note content at that commit
-- **Revert to this version**: Restore the note to that version (creates a new commit)
+Interactive commit browser for the currently open note. Keyboard shortcuts:
+- `Enter` - View note content at selected commit
+- `Ctrl-r` - Revert to selected commit (with confirmation)
+- `Ctrl-d` - Show diff between selected commit and HEAD
 
 Only works when the current buffer is a note file.
 
 #### `:NotesHistory`
-View the git commit history for all notes. Shows commits with the files that were modified.
+Interactive commit browser for all notes in the repository. Keyboard shortcuts:
+- `Enter` - Show commit details and stats
+- `Ctrl-f` - Browse files modified in selected commit
+- `Ctrl-d` - Show full diff for selected commit
+
+When browsing commit files:
+- `Enter` - View file content at that commit
+- `Ctrl-r` - Revert file to that commit (with confirmation)
 
 ## File Structure
 
@@ -154,8 +160,41 @@ When `git_enabled` is `true`:
 - A git repository is automatically initialized in `notes_dir`
 - Notes are automatically committed after creation and deletion
 - If `git_remote` is set, commits are automatically pushed
+- Full commit history accessible via `:NoteHistory` and `:NotesHistory`
+- Interactive browsing with previews and diffs
+- Easy reversion to previous versions
 
 You can manually trigger backups with `:NotesBackup`.
+
+## Interactive Commit Browser
+
+The commit browser provides a powerful interface for exploring your notes history:
+
+### Single Note History (`:NoteHistory`)
+```
+Commit Hash  Date       Author    Message
+abc1234      2 days ago John Doe  Updated project notes
+def5678      1 week ago John Doe  Initial version
+
+Preview: Shows the note content at the selected commit
+Actions:
+  - Enter: View full note at commit
+  - Ctrl-r: Revert to this version
+  - Ctrl-d: Show diff vs current
+```
+
+### All Notes History (`:NotesHistory`)
+```
+Commit Hash  Date        Author    Message              Files
+abc1234      2 days ago  John Doe  Backup notes         [2025/10/20/meeting.md, ...]
+def5678      1 week ago  John Doe  Added new ideas     [2025/10/15/ideas.md]
+
+Preview: Shows commit details and file changes
+Actions:
+  - Enter: View commit details
+  - Ctrl-f: Browse files in commit
+  - Ctrl-d: Show full diff
+```
 
 ## Examples
 
