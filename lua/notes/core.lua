@@ -4,7 +4,12 @@ function M.get_notes_dir()
 	return require("notes").config.notes_dir
 end
 
-function M.get_note_path(date)
+function M.sanitize_filename(title)
+	local sanitized = title:lower():gsub("%s+", "-"):gsub("[^%w%-]", "")
+	return sanitized
+end
+
+function M.get_note_path(date, title)
 	local notes_dir = M.get_notes_dir()
 	local year = os.date("%Y", date)
 	local month = os.date("%m", date)
@@ -20,9 +25,19 @@ end
 
 function M.create_note(title, tags)
 	local timestamp = os.time()
-	local dir = M.get_note_path(timestamp)
-	local filename = string.format("%s.md", os.date("%H%M%S", timestamp))
+	local dir = M.get_note_path(timestamp, title)
+	local sanitized_title = M.sanitize_filename(title or "untitled")
+	local filename = string.format("%s.md", sanitized_title)
 	local filepath = string.format("%s/%s", dir, filename)
+	
+	if vim.fn.filereadable(filepath) == 1 then
+		local counter = 1
+		while vim.fn.filereadable(filepath) == 1 do
+			filename = string.format("%s-%d.md", sanitized_title, counter)
+			filepath = string.format("%s/%s", dir, filename)
+			counter = counter + 1
+		end
+	end
 
 	local lines = {}
 	table.insert(lines, "---")

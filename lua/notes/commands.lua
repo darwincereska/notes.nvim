@@ -11,7 +11,8 @@ function M.create_note()
 			local tags = {}
 			if tags_input and tags_input ~= "" then
 				for tag in tags_input:gmatch("([^,]+)") do
-					table.insert(tags, '"' .. vim.trim(tag) .. '"')
+					local trimmed = vim.trim(tag)
+					table.insert(tags, string.format('"%s"', trimmed))
 				end
 			end
 
@@ -52,6 +53,22 @@ function M.delete_note()
 	require("notes.telescope").delete_note(require("telescope.themes").get_dropdown({}))
 end
 
+function M.note_history()
+	local filepath = vim.fn.expand("%:p")
+	local notes_dir = require("notes.core").get_notes_dir()
+	
+	if not filepath:match("^" .. notes_dir) then
+		vim.notify("Current file is not a note", vim.log.levels.WARN)
+		return
+	end
+	
+	require("notes.telescope").view_file_history(filepath, require("telescope.themes").get_dropdown({}))
+end
+
+function M.notes_history()
+	require("notes.telescope").view_all_history(require("telescope.themes").get_dropdown({}))
+end
+
 function M.setup()
 	vim.api.nvim_create_user_command("Note", M.create_note, {})
 	vim.api.nvim_create_user_command("Notes", M.list_notes, {})
@@ -59,6 +76,8 @@ function M.setup()
 	vim.api.nvim_create_user_command("NotesBackup", M.backup_notes, {})
 	vim.api.nvim_create_user_command("NotesFetch", M.fetch_notes, {})
 	vim.api.nvim_create_user_command("NoteDelete", M.delete_note, {})
+	vim.api.nvim_create_user_command("NoteHistory", M.note_history, {})
+	vim.api.nvim_create_user_command("NotesHistory", M.notes_history, {})
 end
 
 return M

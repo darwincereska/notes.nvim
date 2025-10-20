@@ -5,12 +5,14 @@ A Neovim plugin for managing markdown notes with git version control and Telesco
 ## Features
 
 - 📝 Create notes with titles and optional tags
-- 📁 Organize notes by date (Year/Month/Day structure)
+- 📁 Organize notes by date (Year/Month/Day/title.md structure)
 - 🔍 Browse and search notes with Telescope
 - 🏷️ Filter notes by tags
 - 🔄 Git version control with automatic backup
-- 🗑️ Delete notes with confirmation
+- 🗑️ Delete notes with confirmation (git-aware)
 - 🌐 Optional remote repository sync
+- 📜 View commit history for individual notes or all notes
+- ⏪ Revert notes to previous versions
 
 ## Requirements
 
@@ -77,12 +79,12 @@ Create a new note. You'll be prompted for:
 1. Note title
 2. Tags (optional, comma-separated)
 
-The note will be created in `~/.notes/YYYY/MM/DD/HHMMSS.md` format with frontmatter:
+The note will be created in `~/.notes/YYYY/MM/DD/title.md` format with frontmatter:
 
 ```markdown
 ---
 title: "My Note"
-tags: [tag1, tag2]
+tags: ["tag1", "tag2"]
 date: 2025-10-20 14:30:00
 ---
 
@@ -101,7 +103,17 @@ Commit all changes to git and push to remote (if configured). Automatically stag
 Fetch updates from the remote repository (if configured).
 
 #### `:NoteDelete`
-Open Telescope picker to select a note for deletion. Confirmation prompt will appear before deletion.
+Open Telescope picker to select a note for deletion. Confirmation prompt will appear before deletion. If git is enabled, uses `git rm` to properly remove the file from version control.
+
+#### `:NoteHistory`
+View the git commit history for the currently open note. Select a commit to:
+- **View**: See the note content at that commit
+- **Revert to this version**: Restore the note to that version (creates a new commit)
+
+Only works when the current buffer is a note file.
+
+#### `:NotesHistory`
+View the git commit history for all notes. Shows commits with the files that were modified.
 
 ## File Structure
 
@@ -113,13 +125,13 @@ Notes are organized by date:
 ├── 2025/
 │   ├── 10/
 │   │   ├── 20/
-│   │   │   ├── 143000.md
-│   │   │   └── 150000.md
+│   │   │   ├── meeting-notes.md
+│   │   │   └── project-ideas.md
 │   │   └── 21/
-│   │       └── 090000.md
+│   │       └── daily-log.md
 │   └── 11/
 │       └── 01/
-│           └── 120000.md
+│           └── todo-list.md
 ```
 
 ## Note Format
@@ -129,7 +141,7 @@ Each note contains YAML frontmatter:
 ```markdown
 ---
 title: "Meeting Notes"
-tags: [work, meetings, project-x]
+tags: ["work", "meetings", "project-x"]
 date: 2025-10-20 14:30:00
 ---
 
@@ -185,6 +197,8 @@ vim.keymap.set("n", "<leader>nl", ":Notes<CR>", { desc = "List notes" })
 vim.keymap.set("n", "<leader>nt", ":NoteTags<CR>", { desc = "Notes by tag" })
 vim.keymap.set("n", "<leader>nb", ":NotesBackup<CR>", { desc = "Backup notes" })
 vim.keymap.set("n", "<leader>nd", ":NoteDelete<CR>", { desc = "Delete note" })
+vim.keymap.set("n", "<leader>nh", ":NoteHistory<CR>", { desc = "Note history" })
+vim.keymap.set("n", "<leader>nH", ":NotesHistory<CR>", { desc = "All notes history" })
 ```
 
 ## License
