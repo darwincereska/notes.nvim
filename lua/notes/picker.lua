@@ -68,7 +68,7 @@ function M.find_notes_by_tag(opts)
 				
 				return {
 					value = entry,
-					display = string.format("%s  [%s]  %s", title, tags, date),
+					display = string.format("%s %s %s", title, tags, date),
 					ordinal = title .. " " .. tags .. " " .. date .. " " .. entry,
 					path = entry,
 				}
@@ -122,7 +122,7 @@ function M.delete_note(opts)
 			end,
 		}),
 		attach_mappings = function(prompt_bufnr, map)
-			actions.select_default:replace(function()
+			local handle_delete = function()
 				local selection = action_state.get_selected_entry()
 				if not selection then
 					return
@@ -161,7 +161,11 @@ function M.delete_note(opts)
 						end
 					end)
 				end)
-			end)
+			end
+			
+			map('i', '<CR>', handle_delete)
+			map('n', '<CR>', handle_delete)
+			
 			return true
 		end,
 	}):find()
