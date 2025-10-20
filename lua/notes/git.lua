@@ -1,4 +1,5 @@
 local config = require('notes.config')
+local ui = require('notes.ui')
 
 local M = {}
 
@@ -21,88 +22,79 @@ function M.init_repo()
         return true
     end
 
-    -- Initialize git repo
     local init_success, _ = run_git_command("git init")
     if not init_success then
-        vim.notify("Failed to initialize git repo", vim.log.levels.ERROR)
+        ui.notify("Failed to initialize git repo", vim.log.levels.ERROR)
         return false
     end
 
-    -- Set default branch to main
     run_git_command("git branch -M main")
 
-    -- Add remote if configured
     if config.options.git_remote then
         M.setup_remote()
     end
 
-    vim.notify("Git repo initialized in notes directory", vim.log.levels.INFO)
+    ui.notify("Git repo initialized", vim.log.levels.INFO)
     return true
 end
 
 function M.setup_remote()
-    -- Check if origin already exists
     local check_success, _ = run_git_command("git remote get-url origin")
 
     if check_success then
-        -- Update existing remote
         local update_success, _ = run_git_command("git remote set-url origin " .. config.options.git_remote)
         if update_success then
-            vim.notify("Updated git remote origin", vim.log.levels.INFO)
+            ui.notify("Updated git remote", vim.log.levels.INFO)
         end
     else
-        -- Add new remote
         local add_success, _ = run_git_command("git remote add origin " .. config.options.git_remote)
         if add_success then
-            vim.notify("Added git remote origin", vim.log.levels.INFO)
+            ui.notify("Added git remote", vim.log.levels.INFO)
         else
-            vim.notify("Failed to add remote origin", vim.log.levels.WARN)
+            ui.notify("Failed to add remote", vim.log.levels.WARN)
         end
     end
 end
 
 function M.backup()
-    -- Add all files
     local add_success, _ = run_git_command("git add .")
     if not add_success then
-        vim.notify("Failed to stage files", vim.log.levels.ERROR)
+        ui.notify("Failed to stage files", vim.log.levels.ERROR)
         return
     end
 
-    -- Commit with timestamp
     local timestamp = os.date("%Y-%m-%d %H:%M:%S")
     local commit_msg = "Notes backup: " .. timestamp
     local commit_success, _ = run_git_command('git commit -m "' .. commit_msg .. '"')
 
     if not commit_success then
-        vim.notify("No changes to commit", vim.log.levels.INFO)
+        ui.notify("No changes to commit", vim.log.levels.INFO)
         return
     end
 
-    -- Push to remote if configured
     if config.options.git_remote then
         local push_success, result = run_git_command("git push origin main")
         if push_success then
-            vim.notify("Notes backed up successfully", vim.log.levels.INFO)
+            ui.notify("Notes backed up successfully", vim.log.levels.INFO)
         else
-            vim.notify("Failed to push: " .. result, vim.log.levels.ERROR)
+            ui.notify("Failed to push: " .. result, vim.log.levels.ERROR)
         end
     else
-        vim.notify("Notes committed locally (no remote configured)", vim.log.levels.INFO)
+        ui.notify("Notes committed locally", vim.log.levels.INFO)
     end
 end
 
 function M.fetch()
     if not config.options.git_remote then
-        vim.notify("No git remote configured", vim.log.levels.WARN)
+        ui.notify("No git remote configured", vim.log.levels.WARN)
         return
     end
 
     local success, result = run_git_command("git pull origin main")
     if success then
-        vim.notify("Notes fetched successfully", vim.log.levels.INFO)
+        ui.notify("Notes fetched successfully", vim.log.levels.INFO)
     else
-        vim.notify("Failed to fetch: " .. result, vim.log.levels.ERROR)
+        ui.notify("Failed to fetch: " .. result, vim.log.levels.ERROR)
     end
 end
 
@@ -201,10 +193,10 @@ function M.restore_file_from_commit(file_path, commit_hash)
 
     local success, result = run_git_command(cmd)
     if success then
-        vim.notify("Restored file from commit " .. commit_hash, vim.log.levels.INFO)
+        ui.notify("Restored file from commit " .. commit_hash, vim.log.levels.INFO)
         return true
     else
-        vim.notify("Failed to restore file: " .. result, vim.log.levels.ERROR)
+        ui.notify("Failed to restore file: " .. result, vim.log.levels.ERROR)
         return false
     end
 end

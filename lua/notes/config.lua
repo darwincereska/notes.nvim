@@ -5,7 +5,7 @@ M.defaults = {
     git_remote = nil,
     date_format = "%Y/%m/%d",
     file_extension = ".md",
-    use_telescope = true, -- Prefer telescope when available
+    use_telescope = true,
     template = [[# {title}
 
 Date: {date}
@@ -13,7 +13,11 @@ Tags: {tags}
 
 ---
 
-]]
+]],
+    ui = {
+        border = "rounded",
+        use_native_notify = false,
+    }
 }
 
 M.options = {}
