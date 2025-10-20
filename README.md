@@ -1,15 +1,22 @@
 # notes.nvim
 
-A beautiful, feature-rich notes management plugin for Neovim with git integration and an elegant UI.
+A Neovim plugin for managing markdown notes with git version control and Telescope integration.
 
 ## Features
 
-- 📝 **Note Management**: Create and organize notes with automatic date-based folder structure
-- 🏷️ **Tag System**: Tag notes and browse by tags with `["tag1", "tag2"]` format
-- 🔍 **Telescope Integration**: Beautiful UI with live preview panel
-- 📜 **Git Integration**: Full version control with backup, fetch, and history viewing
-- 🎨 **Customizable UI**: Configurable borders and notification styles
-- ⏰ **History**: View and restore previous versions of notes
+- 📝 Create notes with titles and optional tags
+- 📁 Organize notes by date (Year/Month/Day structure)
+- 🔍 Browse and search notes with Telescope
+- 🏷️ Filter notes by tags
+- 🔄 Git version control with automatic backup
+- 🗑️ Delete notes with confirmation
+- 🌐 Optional remote repository sync
+
+## Requirements
+
+- Neovim >= 0.8.0
+- [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
+- git (for version control features)
 
 ## Installation
 
@@ -17,145 +24,168 @@ A beautiful, feature-rich notes management plugin for Neovim with git integratio
 
 ```lua
 {
-  'darwincereska/notes.nvim',
+  "darwincereska/notes.nvim",
   dependencies = {
-    'nvim-telescope/telescope.nvim',
+    "nvim-telescope/telescope.nvim",
   },
   config = function()
-    require('notes').setup({
-      notes_dir = "~/.notes",
-      git_remote = nil, -- Optional: "git@github.com:user/notes.git"
-      date_format = "%Y/%m/%d",
-      file_extension = ".md",
-      use_telescope = true,
-      ui = {
-        border = "rounded", -- "single", "double", "solid", "shadow"
-        use_native_notify = false,
-      }
+    require("notes").setup({
+      notes_dir = vim.fn.expand("~/.notes"),
+      git_enabled = true,
+      git_remote = "git@github.com:username/notes.git", -- optional
     })
-  end
+  end,
 }
 ```
 
-## Commands
+### Using [packer.nvim](https://github.com/wbthomason/packer.nvim)
 
-- `:Note` - Create a new note (prompts for name and optional tags)
-- `:Notes` - List all notes with Telescope preview
-- `:NotesTags` - Browse notes by tags
-- `:NotesBackup` - Commit and push notes to git remote
-- `:NotesFetch` - Pull latest notes from git remote
-- `:NotesHistory` - Browse all commit history
-- `:NoteHistory` - View history of current note (with restore capability)
-
-## Usage
-
-### Creating Notes
-
-```vim
-:Note
+```lua
+use {
+  "darwincereska/notes.nvim",
+  requires = {
+    "nvim-telescope/telescope.nvim",
+  },
+  config = function()
+    require("notes").setup({
+      notes_dir = vim.fn.expand("~/.notes"),
+      git_enabled = true,
+      git_remote = "git@github.com:username/notes.git", -- optional
+    })
+  end,
+}
 ```
-
-1. Enter note name
-2. Choose whether to add tags (Yes/No)
-3. If yes, enter comma-separated tags
-4. Note is created with template
-
-### Note Template
-
-Notes are created with this structure:
-
-```markdown
-# Note Title
-
-Date: 2025-10-20 14:30:00
-Tags: ["productivity", "vim"]
-
----
-
-[Your content here]
-```
-
-### Browsing Notes
-
-```vim
-:Notes
-```
-
-Opens Telescope with:
-- Live preview of note content
-- Shows title, tags, and date
-- Search through all notes
-- Press `Enter` to open
-
-### Version Control
-
-View previous versions and restore:
-
-```vim
-:NoteHistory
-```
-
-Press `r` to restore a previous version, `q` to close.
 
 ## Configuration
 
-### Default Configuration
+Default configuration:
 
 ```lua
 {
-  notes_dir = vim.fn.expand("~/.notes"),
-  git_remote = nil,
-  date_format = "%Y/%m/%d",
-  file_extension = ".md",
-  use_telescope = true,
-  template = [[# {title}
-
-Date: {date}
-Tags: {tags}
-
----
-
-]],
-  ui = {
-    border = "rounded",
-    use_native_notify = false,
-  }
+  notes_dir = "~/.notes",        -- Directory to store notes
+  git_enabled = true,             -- Enable git integration
+  git_remote = nil,               -- Optional remote repository URL
 }
 ```
 
-### UI Customization
+## Usage
 
-Available border styles:
-- `"none"` - No border
-- `"single"` - Single line border
-- `"double"` - Double line border
-- `"rounded"` - Rounded corners (default)
-- `"solid"` - Solid border
-- `"shadow"` - Shadow effect
+### Commands
 
-## Features in Detail
+#### `:Note`
+Create a new note. You'll be prompted for:
+1. Note title
+2. Tags (optional, comma-separated)
 
-### Tag System
+The note will be created in `~/.notes/YYYY/MM/DD/HHMMSS.md` format with frontmatter:
 
-- Tags are stored as `["tag1", "tag2"]` in notes
-- Empty tags show as `[]` and are hidden in listings
-- Browse all notes by tag with `:NotesTags`
-- Tags display in Telescope listings
+```markdown
+---
+title: "My Note"
+tags: [tag1, tag2]
+date: 2025-10-20 14:30:00
+---
 
-### Git Integration
+```
 
-- Automatic git repo initialization
-- Commit with timestamps
-- Push/pull to remote repository
-- Full commit history with file viewing
-- Restore any previous version
+#### `:Notes`
+Open Telescope picker to browse all notes with preview. Press `<CR>` to open a note.
 
-### Telescope Preview
+#### `:NoteTags`
+Open Telescope picker showing only notes that have tags. Filter and search by tag names.
 
-- Live preview of note content when browsing
-- Clean interface without "process exited" messages
-- Shows metadata (title, tags, date) in listings
-- Fast fuzzy finding
+#### `:NotesBackup`
+Commit all changes to git and push to remote (if configured). Automatically stages all files.
+
+#### `:NotesFetch`
+Fetch updates from the remote repository (if configured).
+
+#### `:NoteDelete`
+Open Telescope picker to select a note for deletion. Confirmation prompt will appear before deletion.
+
+## File Structure
+
+Notes are organized by date:
+
+```
+~/.notes/
+├── .git/
+├── 2025/
+│   ├── 10/
+│   │   ├── 20/
+│   │   │   ├── 143000.md
+│   │   │   └── 150000.md
+│   │   └── 21/
+│   │       └── 090000.md
+│   └── 11/
+│       └── 01/
+│           └── 120000.md
+```
+
+## Note Format
+
+Each note contains YAML frontmatter:
+
+```markdown
+---
+title: "Meeting Notes"
+tags: [work, meetings, project-x]
+date: 2025-10-20 14:30:00
+---
+
+Your note content here...
+```
+
+## Git Integration
+
+When `git_enabled` is `true`:
+- A git repository is automatically initialized in `notes_dir`
+- Notes are automatically committed after creation and deletion
+- If `git_remote` is set, commits are automatically pushed
+
+You can manually trigger backups with `:NotesBackup`.
+
+## Examples
+
+### Basic setup without remote
+
+```lua
+require("notes").setup({
+  notes_dir = vim.fn.expand("~/Documents/notes"),
+  git_enabled = true,
+})
+```
+
+### Setup with GitHub remote
+
+```lua
+require("notes").setup({
+  notes_dir = vim.fn.expand("~/.notes"),
+  git_enabled = true,
+  git_remote = "git@github.com:username/my-notes.git",
+})
+```
+
+### Disable git
+
+```lua
+require("notes").setup({
+  notes_dir = vim.fn.expand("~/.notes"),
+  git_enabled = false,
+})
+```
+
+## Keybindings
+
+You can add custom keybindings in your config:
+
+```lua
+vim.keymap.set("n", "<leader>nn", ":Note<CR>", { desc = "New note" })
+vim.keymap.set("n", "<leader>nl", ":Notes<CR>", { desc = "List notes" })
+vim.keymap.set("n", "<leader>nt", ":NoteTags<CR>", { desc = "Notes by tag" })
+vim.keymap.set("n", "<leader>nb", ":NotesBackup<CR>", { desc = "Backup notes" })
+vim.keymap.set("n", "<leader>nd", ":NoteDelete<CR>", { desc = "Delete note" })
+```
 
 ## License
 
