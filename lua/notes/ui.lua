@@ -169,14 +169,6 @@ function M.notify(msg, level)
         return
     end
     
-    local width = math.min(#msg + 4, math.floor(vim.o.columns * 0.5))
-    local height = 3
-    
-    local row = 2
-    local col = vim.o.columns - width - 2
-    
-    local buf = vim.api.nvim_create_buf(false, true)
-    
     local level_icon = {
         [vim.log.levels.ERROR] = ' ',
         [vim.log.levels.WARN] = ' ',
@@ -185,6 +177,17 @@ function M.notify(msg, level)
     
     local icon = level_icon[level] or ' '
     local display_msg = icon .. ' ' .. msg
+    
+    local width = math.max(#display_msg + 4, 40)
+    local height = 1
+    
+    local row = 2
+    local col = vim.o.columns - width - 2
+    
+    local buf = vim.api.nvim_create_buf(false, true)
+    
+    local padding = math.floor((width - #display_msg) / 2)
+    local centered_msg = string.rep(' ', padding) .. display_msg
     
     local win_opts = {
         relative = 'editor',
@@ -199,7 +202,7 @@ function M.notify(msg, level)
     
     local win = vim.api.nvim_open_win(buf, false, win_opts)
     
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { '', '  ' .. display_msg, '' })
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { centered_msg })
     vim.api.nvim_buf_set_option(buf, 'modifiable', false)
     
     local hl = level == vim.log.levels.ERROR and 'ErrorMsg' or

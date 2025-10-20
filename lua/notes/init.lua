@@ -144,23 +144,30 @@ function M.list_notes()
     local has_conf, conf = pcall(require, 'telescope.config')
     local has_actions, actions = pcall(require, 'telescope.actions')
     local has_action_state, action_state = pcall(require, 'telescope.actions.state')
+    local has_previewers, previewers = pcall(require, 'telescope.previewers')
 
-    if has_telescope and has_finders and has_conf and has_actions and has_action_state and config.options.use_telescope then
+    if has_telescope and has_finders and has_conf and has_actions and has_action_state and has_previewers and config.options.use_telescope then
         telescope_pickers.new({}, {
             prompt_title = "Notes",
             finder = finders.new_table({
                 results = notes_with_metadata,
                 entry_maker = function(note)
                     local tag_str = #note.tags > 0 and " [" .. table.concat(note.tags, ", ") .. "]" or ""
+                    local date_str = note.date and " (" .. note.date .. ")" or ""
                     return {
                         value = note,
-                        display = note.title .. tag_str,
+                        display = note.title .. tag_str .. date_str,
                         ordinal = note.title,
                         path = note.path
                     }
                 end
             }),
             sorter = conf.values.generic_sorter({}),
+            previewer = previewers.new_termopen_previewer({
+                get_command = function(entry)
+                    return { 'cat', entry.path }
+                end
+            }),
             attach_mappings = function(prompt_bufnr)
                 actions.select_default:replace(function()
                     local selection = action_state.get_selected_entry()
@@ -177,7 +184,8 @@ function M.list_notes()
             prompt = "Select note",
             format_item = function(item)
                 local tag_str = #item.tags > 0 and " [" .. table.concat(item.tags, ", ") .. "]" or ""
-                return item.title .. tag_str
+                local date_str = item.date and " (" .. item.date .. ")" or ""
+                return item.title .. tag_str .. date_str
             end
         }, function(choice)
             if choice then
@@ -289,22 +297,6 @@ end
 
 function M.fetch_notes()
     git.fetch()
-end
-
-function M.search_notes()
-    local notes_dir = config.options.notes_dir
-    
-    local has_telescope, telescope = pcall(require, 'telescope.builtin')
-    
-    if has_telescope and config.options.use_telescope then
-        telescope.live_grep({
-            prompt_title = "Search Notes",
-            cwd = notes_dir,
-            search_dirs = { notes_dir }
-        })
-    else
-        ui.notify("Telescope is required for search", vim.log.levels.WARN)
-    end
 end
 
 function M.show_file_history()

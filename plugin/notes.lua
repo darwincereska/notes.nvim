@@ -31,7 +31,3 @@ end, { desc = 'Show all notes history' })
 vim.api.nvim_create_user_command('NoteHistory', function()
     require('notes').show_file_history()
 end, { desc = 'Show current note history' })
-
-vim.api.nvim_create_user_command('NotesSearch', function()
-    require('notes').search_notes()
-end, { desc = 'Search notes with telescope grep' })
