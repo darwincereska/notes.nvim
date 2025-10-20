@@ -1,28 +1,29 @@
 # notes.nvim
 
-A Neovim plugin for managing markdown notes with git version control, fzf fuzzy finding, and an interactive commit browser.
+A Neovim plugin for managing markdown notes with git version control, Telescope fuzzy finding, and an interactive commit browser using NUI.
 
 ## Features
 
 - 📝 Create notes with titles and optional tags
 - 📁 Organize notes by date (Year/Month/Day/title.md structure)
-- 🔍 Browse and search notes with fzf and ripgrep
+- 🔍 Browse and search notes with Telescope
 - 🏷️ Filter notes by tags
 - 🔄 Git version control with automatic backup
 - 🗑️ Delete notes with confirmation (git-aware)
 - 🌐 Optional remote repository sync
-- 📜 Interactive commit browser with previews
+- 📜 Interactive commit browser with NUI menus
 - ⏪ Revert notes to previous versions from commit browser
 - 🔀 View diffs between commits
 - 📂 Browse files in specific commits
+- ⚡ Async operations with Plenary
 
 ## Requirements
 
 - Neovim >= 0.8.0
-- [fzf](https://github.com/junegunn/fzf) - fuzzy finder
+- [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
+- [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
+- [nui.nvim](https://github.com/MunifTanjim/nui.nvim)
 - git (for version control features)
-- [bat](https://github.com/sharkdp/bat) - optional, for syntax highlighting in previews
-- [ripgrep](https://github.com/BurntSushi/ripgrep) - optional, for content search
 
 ## Installation
 
@@ -31,6 +32,11 @@ A Neovim plugin for managing markdown notes with git version control, fzf fuzzy 
 ```lua
 {
   "darwincereska/notes.nvim",
+  dependencies = {
+    "nvim-telescope/telescope.nvim",
+    "nvim-lua/plenary.nvim",
+    "MunifTanjim/nui.nvim",
+  },
   config = function()
     require("notes").setup({
       notes_dir = vim.fn.expand("~/.notes"),
@@ -46,6 +52,11 @@ A Neovim plugin for managing markdown notes with git version control, fzf fuzzy 
 ```lua
 use {
   "darwincereska/notes.nvim",
+  requires = {
+    "nvim-telescope/telescope.nvim",
+    "nvim-lua/plenary.nvim",
+    "MunifTanjim/nui.nvim",
+  },
   config = function()
     require("notes").setup({
       notes_dir = vim.fn.expand("~/.notes"),
@@ -89,10 +100,10 @@ date: 2025-10-20 14:30:00
 ```
 
 #### `:Notes`
-Open fzf picker to browse all notes with preview. Uses bat for syntax highlighting if available. Press `<CR>` to open a note.
+Open Telescope picker to browse all notes with preview. Press `<CR>` to open a note. Fully vim-navigable with `j`/`k`.
 
 #### `:NoteTags`
-Open fzf picker showing only notes that have tags. Filter and search by tag names with live preview.
+Open Telescope picker showing only notes that have tags. Filter and search by tag names with live preview.
 
 #### `:NotesBackup`
 Commit all changes to git and push to remote (if configured). Automatically stages all files.
@@ -101,25 +112,30 @@ Commit all changes to git and push to remote (if configured). Automatically stag
 Fetch updates from the remote repository (if configured).
 
 #### `:NoteDelete`
-Open fzf picker to select a note for deletion. Confirmation prompt will appear before deletion. If git is enabled, uses `git rm` to properly remove the file from version control and commits the change.
+Open Telescope picker to select a note for deletion. Confirmation prompt will appear before deletion. If git is enabled, uses `git rm` to properly remove the file from version control and commits the change.
 
 #### `:NoteHistory`
-Interactive commit browser for the currently open note. Keyboard shortcuts:
-- `Enter` - View note content at selected commit
-- `Ctrl-r` - Revert to selected commit (with confirmation)
-- `Ctrl-d` - Show diff between selected commit and HEAD
+Interactive commit browser for the currently open note using Telescope + NUI menus:
+1. Browse commits with Telescope (vim-navigable with `j`/`k`)
+2. Press `Enter` to open an interactive menu with options:
+   - **View at this commit** - Opens the note content in a buffer
+   - **Revert to this commit** - Restores note to selected version (with confirmation)
+   - **Show diff** - Displays diff between selected commit and HEAD
 
 Only works when the current buffer is a note file.
 
 #### `:NotesHistory`
-Interactive commit browser for all notes in the repository. Keyboard shortcuts:
-- `Enter` - Show commit details and stats
-- `Ctrl-f` - Browse files modified in selected commit
-- `Ctrl-d` - Show full diff for selected commit
+Interactive commit browser for all notes using Telescope + NUI menus:
+1. Browse all commits with Telescope (vim-navigable with `j`/`k`)
+2. Press `Enter` to open an interactive menu with options:
+   - **Show commit details** - View commit message and stats
+   - **Browse files in commit** - Opens Telescope to browse modified files
+   - **Show diff** - View full commit diff
 
-When browsing commit files:
-- `Enter` - View file content at that commit
-- `Ctrl-r` - Revert file to that commit (with confirmation)
+When browsing files in a commit:
+- Press `Enter` to open menu with:
+  - **View file at this commit** - Opens file content in buffer
+  - **Revert file to this commit** - Restores file (with confirmation)
 
 ## File Structure
 
@@ -168,33 +184,49 @@ You can manually trigger backups with `:NotesBackup`.
 
 ## Interactive Commit Browser
 
-The commit browser provides a powerful interface for exploring your notes history:
+The commit browser provides a powerful interface using Telescope and NUI for exploring your notes history:
 
 ### Single Note History (`:NoteHistory`)
-```
-Commit Hash  Date       Author    Message
-abc1234      2 days ago John Doe  Updated project notes
-def5678      1 week ago John Doe  Initial version
+1. **Telescope View**: Browse commits with live preview
+   - Navigate with `j`/`k` or arrow keys
+   - Preview shows note content at selected commit
+   - Search/filter commits in real-time
 
-Preview: Shows the note content at the selected commit
-Actions:
-  - Enter: View full note at commit
-  - Ctrl-r: Revert to this version
-  - Ctrl-d: Show diff vs current
-```
+2. **NUI Action Menu**: Press `Enter` to open interactive menu
+   ```
+   ┌─ Actions ─────────────────────┐
+   │ View at this commit            │
+   │ Revert to this commit          │
+   │ Show diff                      │
+   │ ──────────────────────────     │
+   │ Cancel                         │
+   └────────────────────────────────┘
+   ```
+   - Navigate with `j`/`k`
+   - Select with `Enter`
+   - Cancel with `Esc` or `q`
 
 ### All Notes History (`:NotesHistory`)
-```
-Commit Hash  Date        Author    Message              Files
-abc1234      2 days ago  John Doe  Backup notes         [2025/10/20/meeting.md, ...]
-def5678      1 week ago  John Doe  Added new ideas     [2025/10/15/ideas.md]
+1. **Telescope View**: Browse all commits
+   - Shows commit hash, date, author, and message
+   - Live preview of commit stats and changes
+   - Async loading with Plenary
 
-Preview: Shows commit details and file changes
-Actions:
-  - Enter: View commit details
-  - Ctrl-f: Browse files in commit
-  - Ctrl-d: Show full diff
-```
+2. **NUI Action Menu**: Press `Enter` for options
+   ```
+   ┌─ Actions ─────────────────────┐
+   │ Show commit details            │
+   │ Browse files in commit         │
+   │ Show diff                      │
+   │ ──────────────────────────     │
+   │ Cancel                         │
+   └────────────────────────────────┘
+   ```
+
+3. **File Browser**: If you select "Browse files in commit"
+   - Opens another Telescope picker with files
+   - Preview shows file content at that commit
+   - Press `Enter` for file-specific actions
 
 ## Examples
 

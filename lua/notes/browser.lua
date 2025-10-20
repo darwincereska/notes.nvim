@@ -1,336 +1,454 @@
 local M = {}
-local git = require("notes.git")
+local pickers = require("telescope.pickers")
+local finders = require("telescope.finders")
+local conf = require("telescope.config").values
+local actions = require("telescope.actions")
+local action_state = require("telescope.actions.state")
+local previewers = require("telescope.previewers")
+local Menu = require("nui.menu")
+local Popup = require("nui.popup")
+local Job = require("plenary.job")
 local core = require("notes.core")
+local git = require("notes.git")
 
-function M.file_history(filepath)
+local function execute_git_async(args, cwd, callback)
+	Job:new({
+		command = "git",
+		args = args,
+		cwd = cwd,
+		on_exit = function(j, return_val)
+			vim.schedule(function()
+				callback(j:result(), return_val == 0)
+			end)
+		end,
+	}):start()
+end
+
+function M.file_history(filepath, opts)
+	opts = opts or {}
 	local notes_dir = core.get_notes_dir()
 	local relative_path = filepath:gsub("^" .. notes_dir .. "/", "")
 	
-	local buf = vim.api.nvim_create_buf(false, true)
-	vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
-	vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
-	vim.api.nvim_set_current_buf(buf)
-	
-	local preview_script = vim.fn.tempname()
-	local script = io.open(preview_script, "w")
-	if script then
-		script:write(string.format([[
-#!/bin/bash
-line="$1"
-hash=$(echo "$line" | awk '{print $1}')
-cd "%s"
-git show "$hash:%s" 2>/dev/null | bat --style=numbers --color=always -l markdown 2>/dev/null || git show "$hash:%s"
-]], notes_dir, relative_path, relative_path))
-		script:close()
-		vim.fn.system("chmod +x " .. preview_script)
-	end
-	
-	local log_cmd = string.format(
-		'git -C "%s" log --pretty=format:"%%h  %%ar  %%an  %%s" --follow -- "%s" 2>/dev/null',
+	execute_git_async(
+		{ "log", "--pretty=format:%H|%an|%ar|%s", "--follow", "--", relative_path },
 		notes_dir,
-		relative_path
-	)
-	
-	local fzf_cmd = string.format(
-		"%s | fzf --ansi --prompt='History> ' --preview='%s {}' --preview-window=right:60%%:wrap --height=100%% --layout=reverse --border --header='[Enter]=View [Ctrl-r]=Revert [Ctrl-d]=Diff' --expect=ctrl-r,ctrl-d",
-		log_cmd,
-		preview_script
-	)
-	
-	vim.fn.termopen(fzf_cmd, {
-		on_exit = function(_, exit_code)
-			vim.fn.delete(preview_script)
-			
-			if exit_code == 0 then
-				vim.schedule(function()
-					local output = vim.fn.getreg('"')
-					if output and output ~= "" then
-						local lines = vim.split(output, "\n", { trimempty = true })
-						local key = lines[1] or ""
-						local selected = lines[2] or ""
-						
-						if selected ~= "" then
-							local hash = vim.split(selected, "%s+")[1]
-							
-							if key == "ctrl-r" then
-								vim.ui.select({ "Yes", "No" }, {
-									prompt = "Revert to commit " .. hash .. "?",
-								}, function(choice)
-									if choice == "Yes" then
-										git.revert_file(filepath, hash)
-										vim.cmd("edit! " .. filepath)
-									end
-									vim.cmd("bdelete!")
-								end)
-							elseif key == "ctrl-d" then
-								local diff_buf = vim.api.nvim_create_buf(false, true)
-								vim.api.nvim_buf_set_option(diff_buf, "buftype", "nofile")
-								vim.api.nvim_buf_set_option(diff_buf, "bufhidden", "wipe")
-								vim.api.nvim_buf_set_option(diff_buf, "filetype", "diff")
-								
-								local diff_cmd = string.format('git -C "%s" diff "%s" "%s" -- "%s"', notes_dir, hash, "HEAD", relative_path)
-								local handle = io.popen(diff_cmd)
-								if handle then
-									local diff_content = handle:read("*all")
-									handle:close()
-									
-									local diff_lines = vim.split(diff_content, "\n")
-									vim.api.nvim_buf_set_lines(diff_buf, 0, -1, false, diff_lines)
-								end
-								
-								vim.cmd("bdelete!")
-								vim.api.nvim_set_current_buf(diff_buf)
-								vim.api.nvim_buf_set_name(diff_buf, string.format("[Diff] %s vs %s", hash, "HEAD"))
-							else
-								local view_buf = vim.api.nvim_create_buf(false, true)
-								vim.api.nvim_buf_set_option(view_buf, "buftype", "nofile")
-								vim.api.nvim_buf_set_option(view_buf, "bufhidden", "wipe")
-								vim.api.nvim_buf_set_option(view_buf, "filetype", "markdown")
-								
-								local show_cmd = string.format('git -C "%s" show "%s:%s"', notes_dir, hash, relative_path)
-								local handle = io.popen(show_cmd)
-								if handle then
-									local content = handle:read("*all")
-									handle:close()
-									
-									local content_lines = vim.split(content, "\n")
-									vim.api.nvim_buf_set_lines(view_buf, 0, -1, false, content_lines)
-								end
-								
-								vim.cmd("bdelete!")
-								vim.api.nvim_set_current_buf(view_buf)
-								vim.api.nvim_buf_set_name(view_buf, string.format("[History] %s @ %s", relative_path, hash))
-							end
-						end
-					end
-				end)
-			else
-				vim.schedule(function()
-					vim.cmd("bdelete!")
-				end)
+		function(result, success)
+			if not success or #result == 0 then
+				vim.notify("No history found for this note", vim.log.levels.WARN)
+				return
 			end
-		end,
-		stdout_buffered = true,
-		on_stdout = function(_, data)
-			if data then
-				local output = table.concat(data, "")
-				if output and output ~= "" then
-					vim.fn.setreg('"', output)
+			
+			local commits = {}
+			for _, line in ipairs(result) do
+				local hash, author, date, message = line:match("([^|]+)|([^|]+)|([^|]+)|(.+)")
+				if hash then
+					table.insert(commits, {
+						hash = hash,
+						author = author,
+						date = date,
+						message = message,
+						filepath = filepath,
+					})
 				end
 			end
-		end,
-	})
+			
+			pickers.new(opts, {
+				prompt_title = "Note History: " .. relative_path,
+				finder = finders.new_table({
+					results = commits,
+					entry_maker = function(entry)
+						return {
+							value = entry,
+							display = string.format("%s  %s  %s", entry.hash:sub(1, 7), entry.date, entry.message),
+							ordinal = entry.hash .. " " .. entry.date .. " " .. entry.message,
+						}
+					end,
+				}),
+				sorter = conf.generic_sorter(opts),
+				previewer = previewers.new_buffer_previewer({
+					title = "Commit Content",
+					define_preview = function(self, entry)
+						Job:new({
+							command = "git",
+							args = { "show", entry.value.hash .. ":" .. relative_path },
+							cwd = notes_dir,
+							on_exit = function(j)
+								vim.schedule(function()
+									vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, j:result())
+									vim.api.nvim_buf_set_option(self.state.bufnr, "filetype", "markdown")
+								end)
+							end,
+						}):start()
+					end,
+				}),
+				attach_mappings = function(prompt_bufnr, map)
+					local function show_actions()
+						local selection = action_state.get_selected_entry()
+						actions.close(prompt_bufnr)
+						
+						local menu = Menu({
+							position = "50%",
+							size = {
+								width = 40,
+								height = 5,
+							},
+							border = {
+								style = "rounded",
+								text = {
+									top = " Actions ",
+									top_align = "center",
+								},
+							},
+							win_options = {
+								winhighlight = "Normal:Normal,FloatBorder:Normal",
+							},
+						}, {
+							lines = {
+								Menu.item("View at this commit"),
+								Menu.item("Revert to this commit"),
+								Menu.item("Show diff"),
+								Menu.separator(""),
+								Menu.item("Cancel"),
+							},
+							max_width = 40,
+							keymap = {
+								focus_next = { "j", "<Down>", "<Tab>" },
+								focus_prev = { "k", "<Up>", "<S-Tab>" },
+								close = { "<Esc>", "<C-c>", "q" },
+								submit = { "<CR>", "<Space>" },
+							},
+							on_submit = function(item)
+								if item.text == "View at this commit" then
+									Job:new({
+										command = "git",
+										args = { "show", selection.value.hash .. ":" .. relative_path },
+										cwd = notes_dir,
+										on_exit = function(j)
+											vim.schedule(function()
+												local buf = vim.api.nvim_create_buf(false, true)
+												vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+												vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+												vim.api.nvim_buf_set_option(buf, "filetype", "markdown")
+												vim.api.nvim_buf_set_lines(buf, 0, -1, false, j:result())
+												vim.api.nvim_set_current_buf(buf)
+												vim.api.nvim_buf_set_name(buf, string.format("[%s] %s", selection.value.hash:sub(1, 7), relative_path))
+											end)
+										end,
+									}):start()
+								elseif item.text == "Revert to this commit" then
+									vim.ui.select({ "Yes", "No" }, {
+										prompt = "Revert to commit " .. selection.value.hash:sub(1, 7) .. "?",
+									}, function(choice)
+										if choice == "Yes" then
+											git.revert_file(filepath, selection.value.hash)
+											vim.cmd("edit! " .. vim.fn.fnameescape(filepath))
+										end
+									end)
+								elseif item.text == "Show diff" then
+									Job:new({
+										command = "git",
+										args = { "diff", selection.value.hash, "HEAD", "--", relative_path },
+										cwd = notes_dir,
+										on_exit = function(j)
+											vim.schedule(function()
+												local buf = vim.api.nvim_create_buf(false, true)
+												vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+												vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+												vim.api.nvim_buf_set_option(buf, "filetype", "diff")
+												vim.api.nvim_buf_set_lines(buf, 0, -1, false, j:result())
+												vim.api.nvim_set_current_buf(buf)
+												vim.api.nvim_buf_set_name(buf, string.format("[Diff] %s vs HEAD", selection.value.hash:sub(1, 7)))
+											end)
+										end,
+									}):start()
+								end
+							end,
+						})
+						
+						menu:mount()
+					end
+					
+					actions.select_default:replace(show_actions)
+					return true
+				end,
+			}):find()
+		end
+	)
 end
 
-function M.all_history()
+function M.all_history(opts)
+	opts = opts or {}
 	local notes_dir = core.get_notes_dir()
 	
-	local buf = vim.api.nvim_create_buf(false, true)
-	vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
-	vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
-	vim.api.nvim_set_current_buf(buf)
-	
-	local preview_script = vim.fn.tempname()
-	local script = io.open(preview_script, "w")
-	if script then
-		script:write(string.format([[
-#!/bin/bash
-line="$1"
-hash=$(echo "$line" | awk '{print $1}')
-cd "%s"
-echo "Commit: $hash"
-echo ""
-git show --stat --pretty=format:"Author: %%an <%%ae>%%nDate: %%ar%%n%%nMessage:%%n  %%s%%n%%n%%b%%n" "$hash" --color=always 2>/dev/null | bat --style=plain --color=always 2>/dev/null || git show --stat "$hash"
-]], notes_dir))
-		script:close()
-		vim.fn.system("chmod +x " .. preview_script)
-	end
-	
-	local log_cmd = string.format(
-		'git -C "%s" log --all --pretty=format:"%%h  %%ar  %%an  %%s" --color=always 2>/dev/null',
-		notes_dir
-	)
-	
-	local fzf_cmd = string.format(
-		"%s | fzf --ansi --prompt='Commits> ' --preview='%s {}' --preview-window=right:60%%:wrap --height=100%% --layout=reverse --border --header='[Enter]=Show [Ctrl-f]=Files [Ctrl-d]=Diff' --expect=ctrl-f,ctrl-d",
-		log_cmd,
-		preview_script
-	)
-	
-	vim.fn.termopen(fzf_cmd, {
-		on_exit = function(_, exit_code)
-			vim.fn.delete(preview_script)
-			
-			if exit_code == 0 then
-				vim.schedule(function()
-					local output = vim.fn.getreg('"')
-					if output and output ~= "" then
-						local lines = vim.split(output, "\n", { trimempty = true })
-						local key = lines[1] or ""
-						local selected = lines[2] or ""
-						
-						if selected ~= "" then
-							local hash = vim.split(selected, "%s+")[1]
-							
-							if key == "ctrl-f" then
-								M.browse_commit_files(hash)
-							elseif key == "ctrl-d" then
-								local diff_buf = vim.api.nvim_create_buf(false, true)
-								vim.api.nvim_buf_set_option(diff_buf, "buftype", "nofile")
-								vim.api.nvim_buf_set_option(diff_buf, "bufhidden", "wipe")
-								vim.api.nvim_buf_set_option(diff_buf, "filetype", "diff")
-								
-								local diff_cmd = string.format('git -C "%s" show --color=never "%s"', notes_dir, hash)
-								local handle = io.popen(diff_cmd)
-								if handle then
-									local diff_content = handle:read("*all")
-									handle:close()
-									
-									local diff_lines = vim.split(diff_content, "\n")
-									vim.api.nvim_buf_set_lines(diff_buf, 0, -1, false, diff_lines)
-								end
-								
-								vim.cmd("bdelete!")
-								vim.api.nvim_set_current_buf(diff_buf)
-								vim.api.nvim_buf_set_name(diff_buf, string.format("[Commit] %s", hash))
-							else
-								local show_buf = vim.api.nvim_create_buf(false, true)
-								vim.api.nvim_buf_set_option(show_buf, "buftype", "nofile")
-								vim.api.nvim_buf_set_option(show_buf, "bufhidden", "wipe")
-								
-								local show_cmd = string.format('git -C "%s" show --stat "%s"', notes_dir, hash)
-								local handle = io.popen(show_cmd)
-								if handle then
-									local content = handle:read("*all")
-									handle:close()
-									
-									local content_lines = vim.split(content, "\n")
-									vim.api.nvim_buf_set_lines(show_buf, 0, -1, false, content_lines)
-								end
-								
-								vim.cmd("bdelete!")
-								vim.api.nvim_set_current_buf(show_buf)
-								vim.api.nvim_buf_set_name(show_buf, string.format("[Commit] %s", hash))
-							end
-						end
-					end
-				end)
-			else
-				vim.schedule(function()
-					vim.cmd("bdelete!")
-				end)
+	execute_git_async(
+		{ "log", "--all", "--pretty=format:%H|%an|%ar|%s" },
+		notes_dir,
+		function(result, success)
+			if not success or #result == 0 then
+				vim.notify("No history found", vim.log.levels.WARN)
+				return
 			end
-		end,
-		stdout_buffered = true,
-		on_stdout = function(_, data)
-			if data then
-				local output = table.concat(data, "")
-				if output and output ~= "" then
-					vim.fn.setreg('"', output)
+			
+			local commits = {}
+			for _, line in ipairs(result) do
+				local hash, author, date, message = line:match("([^|]+)|([^|]+)|([^|]+)|(.+)")
+				if hash then
+					table.insert(commits, {
+						hash = hash,
+						author = author,
+						date = date,
+						message = message,
+					})
 				end
 			end
-		end,
-	})
+			
+			pickers.new(opts, {
+				prompt_title = "All Commits",
+				finder = finders.new_table({
+					results = commits,
+					entry_maker = function(entry)
+						return {
+							value = entry,
+							display = string.format("%s  %s  %s  %s", entry.hash:sub(1, 7), entry.date, entry.author, entry.message),
+							ordinal = entry.hash .. " " .. entry.date .. " " .. entry.author .. " " .. entry.message,
+						}
+					end,
+				}),
+				sorter = conf.generic_sorter(opts),
+				previewer = previewers.new_buffer_previewer({
+					title = "Commit Details",
+					define_preview = function(self, entry)
+						Job:new({
+							command = "git",
+							args = { "show", "--stat", entry.value.hash },
+							cwd = notes_dir,
+							on_exit = function(j)
+								vim.schedule(function()
+									vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, j:result())
+									vim.api.nvim_buf_set_option(self.state.bufnr, "filetype", "git")
+								end)
+							end,
+						}):start()
+					end,
+				}),
+				attach_mappings = function(prompt_bufnr, map)
+					local function show_actions()
+						local selection = action_state.get_selected_entry()
+						actions.close(prompt_bufnr)
+						
+						local menu = Menu({
+							position = "50%",
+							size = {
+								width = 40,
+								height = 5,
+							},
+							border = {
+								style = "rounded",
+								text = {
+									top = " Actions ",
+									top_align = "center",
+								},
+							},
+							win_options = {
+								winhighlight = "Normal:Normal,FloatBorder:Normal",
+							},
+						}, {
+							lines = {
+								Menu.item("Show commit details"),
+								Menu.item("Browse files in commit"),
+								Menu.item("Show diff"),
+								Menu.separator(""),
+								Menu.item("Cancel"),
+							},
+							max_width = 40,
+							keymap = {
+								focus_next = { "j", "<Down>", "<Tab>" },
+								focus_prev = { "k", "<Up>", "<S-Tab>" },
+								close = { "<Esc>", "<C-c>", "q" },
+								submit = { "<CR>", "<Space>" },
+							},
+							on_submit = function(item)
+								if item.text == "Show commit details" then
+									Job:new({
+										command = "git",
+										args = { "show", "--stat", selection.value.hash },
+										cwd = notes_dir,
+										on_exit = function(j)
+											vim.schedule(function()
+												local buf = vim.api.nvim_create_buf(false, true)
+												vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+												vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+												vim.api.nvim_buf_set_option(buf, "filetype", "git")
+												vim.api.nvim_buf_set_lines(buf, 0, -1, false, j:result())
+												vim.api.nvim_set_current_buf(buf)
+												vim.api.nvim_buf_set_name(buf, string.format("[Commit] %s", selection.value.hash:sub(1, 7)))
+											end)
+										end,
+									}):start()
+								elseif item.text == "Browse files in commit" then
+									M.browse_commit_files(selection.value.hash, opts)
+								elseif item.text == "Show diff" then
+									Job:new({
+										command = "git",
+										args = { "show", selection.value.hash },
+										cwd = notes_dir,
+										on_exit = function(j)
+											vim.schedule(function()
+												local buf = vim.api.nvim_create_buf(false, true)
+												vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+												vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+												vim.api.nvim_buf_set_option(buf, "filetype", "diff")
+												vim.api.nvim_buf_set_lines(buf, 0, -1, false, j:result())
+												vim.api.nvim_set_current_buf(buf)
+												vim.api.nvim_buf_set_name(buf, string.format("[Diff] %s", selection.value.hash:sub(1, 7)))
+											end)
+										end,
+									}):start()
+								end
+							end,
+						})
+						
+						menu:mount()
+					end
+					
+					actions.select_default:replace(show_actions)
+					return true
+				end,
+			}):find()
+		end
+	)
 end
 
-function M.browse_commit_files(commit_hash)
+function M.browse_commit_files(commit_hash, opts)
+	opts = opts or {}
 	local notes_dir = core.get_notes_dir()
 	
-	local buf = vim.api.nvim_create_buf(false, true)
-	vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
-	vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
-	vim.api.nvim_set_current_buf(buf)
-	
-	local preview_script = vim.fn.tempname()
-	local script = io.open(preview_script, "w")
-	if script then
-		script:write(string.format([[
-#!/bin/bash
-file="$1"
-cd "%s"
-git show "%s:$file" 2>/dev/null | bat --style=numbers --color=always -l markdown 2>/dev/null || git show "%s:$file"
-]], notes_dir, commit_hash, commit_hash))
-		script:close()
-		vim.fn.system("chmod +x " .. preview_script)
-	end
-	
-	local files_cmd = string.format(
-		'git -C "%s" diff-tree --no-commit-id --name-only -r "%s" 2>/dev/null | grep "\\.md$"',
+	execute_git_async(
+		{ "diff-tree", "--no-commit-id", "--name-only", "-r", commit_hash },
 		notes_dir,
-		commit_hash
-	)
-	
-	local fzf_cmd = string.format(
-		"%s | fzf --ansi --prompt='Files in %s> ' --preview='%s {}' --preview-window=right:60%%:wrap --height=100%% --layout=reverse --border --header='[Enter]=View [Ctrl-r]=Revert' --expect=ctrl-r",
-		files_cmd,
-		commit_hash:sub(1, 7),
-		preview_script
-	)
-	
-	vim.fn.termopen(fzf_cmd, {
-		on_exit = function(_, exit_code)
-			vim.fn.delete(preview_script)
-			
-			if exit_code == 0 then
-				vim.schedule(function()
-					local output = vim.fn.getreg('"')
-					if output and output ~= "" then
-						local lines = vim.split(output, "\n", { trimempty = true })
-						local key = lines[1] or ""
-						local selected = lines[2] or ""
-						
-						if selected ~= "" then
-							local filepath = notes_dir .. "/" .. selected
-							
-							if key == "ctrl-r" then
-								vim.ui.select({ "Yes", "No" }, {
-									prompt = "Revert " .. selected .. " to commit " .. commit_hash:sub(1, 7) .. "?",
-								}, function(choice)
-									if choice == "Yes" then
-										git.revert_file(filepath, commit_hash)
-										vim.notify("File reverted to " .. commit_hash:sub(1, 7), vim.log.levels.INFO)
-									end
-									vim.cmd("bdelete!")
-								end)
-							else
-								local view_buf = vim.api.nvim_create_buf(false, true)
-								vim.api.nvim_buf_set_option(view_buf, "buftype", "nofile")
-								vim.api.nvim_buf_set_option(view_buf, "bufhidden", "wipe")
-								vim.api.nvim_buf_set_option(view_buf, "filetype", "markdown")
-								
-								local show_cmd = string.format('git -C "%s" show "%s:%s"', notes_dir, commit_hash, selected)
-								local handle = io.popen(show_cmd)
-								if handle then
-									local content = handle:read("*all")
-									handle:close()
-									
-									local content_lines = vim.split(content, "\n")
-									vim.api.nvim_buf_set_lines(view_buf, 0, -1, false, content_lines)
-								end
-								
-								vim.cmd("bdelete!")
-								vim.api.nvim_set_current_buf(view_buf)
-								vim.api.nvim_buf_set_name(view_buf, string.format("[%s] %s", commit_hash:sub(1, 7), selected))
-							end
-						end
-					end
-				end)
-			else
-				vim.schedule(function()
-					vim.cmd("bdelete!")
-				end)
+		function(result, success)
+			if not success or #result == 0 then
+				vim.notify("No files found in commit", vim.log.levels.WARN)
+				return
 			end
-		end,
-		stdout_buffered = true,
-		on_stdout = function(_, data)
-			if data then
-				local output = table.concat(data, "")
-				if output and output ~= "" then
-					vim.fn.setreg('"', output)
+			
+			local files = {}
+			for _, line in ipairs(result) do
+				if line:match("%.md$") then
+					table.insert(files, line)
 				end
 			end
-		end,
-	})
+			
+			if #files == 0 then
+				vim.notify("No markdown files found in commit", vim.log.levels.WARN)
+				return
+			end
+			
+			pickers.new(opts, {
+				prompt_title = "Files in " .. commit_hash:sub(1, 7),
+				finder = finders.new_table({
+					results = files,
+					entry_maker = function(entry)
+						return {
+							value = entry,
+							display = entry,
+							ordinal = entry,
+						}
+					end,
+				}),
+				sorter = conf.generic_sorter(opts),
+				previewer = previewers.new_buffer_previewer({
+					title = "File Content",
+					define_preview = function(self, entry)
+						Job:new({
+							command = "git",
+							args = { "show", commit_hash .. ":" .. entry.value },
+							cwd = notes_dir,
+							on_exit = function(j)
+								vim.schedule(function()
+									vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, j:result())
+									vim.api.nvim_buf_set_option(self.state.bufnr, "filetype", "markdown")
+								end)
+							end,
+						}):start()
+					end,
+				}),
+				attach_mappings = function(prompt_bufnr, map)
+					local function show_actions()
+						local selection = action_state.get_selected_entry()
+						actions.close(prompt_bufnr)
+						
+						local menu = Menu({
+							position = "50%",
+							size = {
+								width = 40,
+								height = 4,
+							},
+							border = {
+								style = "rounded",
+								text = {
+									top = " Actions ",
+									top_align = "center",
+								},
+							},
+							win_options = {
+								winhighlight = "Normal:Normal,FloatBorder:Normal",
+							},
+						}, {
+							lines = {
+								Menu.item("View file at this commit"),
+								Menu.item("Revert file to this commit"),
+								Menu.separator(""),
+								Menu.item("Cancel"),
+							},
+							max_width = 40,
+							keymap = {
+								focus_next = { "j", "<Down>", "<Tab>" },
+								focus_prev = { "k", "<Up>", "<S-Tab>" },
+								close = { "<Esc>", "<C-c>", "q" },
+								submit = { "<CR>", "<Space>" },
+							},
+							on_submit = function(item)
+								if item.text == "View file at this commit" then
+									Job:new({
+										command = "git",
+										args = { "show", commit_hash .. ":" .. selection.value },
+										cwd = notes_dir,
+										on_exit = function(j)
+											vim.schedule(function()
+												local buf = vim.api.nvim_create_buf(false, true)
+												vim.api.nvim_buf_set_option(buf, "buftype", "nofile")
+												vim.api.nvim_buf_set_option(buf, "bufhidden", "wipe")
+												vim.api.nvim_buf_set_option(buf, "filetype", "markdown")
+												vim.api.nvim_buf_set_lines(buf, 0, -1, false, j:result())
+												vim.api.nvim_set_current_buf(buf)
+												vim.api.nvim_buf_set_name(buf, string.format("[%s] %s", commit_hash:sub(1, 7), selection.value))
+											end)
+										end,
+									}):start()
+								elseif item.text == "Revert file to this commit" then
+									vim.ui.select({ "Yes", "No" }, {
+										prompt = "Revert " .. selection.value .. " to commit " .. commit_hash:sub(1, 7) .. "?",
+									}, function(choice)
+										if choice == "Yes" then
+											local filepath = notes_dir .. "/" .. selection.value
+											git.revert_file(filepath, commit_hash)
+											vim.notify("File reverted to " .. commit_hash:sub(1, 7), vim.log.levels.INFO)
+										end
+									end)
+								end
+							end,
+						})
+						
+						menu:mount()
+					end
+					
+					actions.select_default:replace(show_actions)
+					return true
+				end,
+			}):find()
+		end
+	)
 end
 
 return M
