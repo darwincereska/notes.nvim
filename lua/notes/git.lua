@@ -146,27 +146,48 @@ function M.revert_file(filepath, commit_hash)
 	local notes_dir = require("notes.core").get_notes_dir()
 	local relative_path = filepath:gsub("^" .. notes_dir .. "/", "")
 	
-	local result, success = execute_git(
-		string.format('show %s:"%s"', commit_hash, relative_path),
-		notes_dir
-	)
+	local show_cmd = string.format('cd "%s" && git show "%s:%s"', notes_dir, commit_hash, relative_path)
+	local result = vim.fn.system(show_cmd)
 	
-	if success and result then
+	if vim.v.shell_error == 0 and result and result ~= "" then
 		local file = io.open(filepath, "w")
 		if file then
 			file:write(result)
 			file:close()
 			
-			execute_git("add .", notes_dir)
-			execute_git(string.format('commit -m "Revert %s to %s"', relative_path, commit_hash:sub(1, 7)), notes_dir)
+			local add_cmd = string.format('cd "%s" && git add "%s"', notes_dir, relative_path)
+			vim.fn.system(add_cmd)
 			
-			vim.notify("File reverted to commit " .. commit_hash:sub(1, 7), vim.log.levels.INFO)
-			return true
+			if vim.v.shell_error == 0 then
+				local commit_cmd = string.format('cd "%s" && git commit -m "Revert %s to %s"', notes_dir, relative_path, commit_hash:sub(1, 7))
+				vim.fn.system(commit_cmd)
+				
+				if vim.v.shell_error == 0 then
+					vim.notify("File reverted to commit " .. commit_hash:sub(1, 7), vim.log.levels.INFO)
+					
+					local config = require("notes").config
+					if config.git_remote then
+						local push_cmd = string.format('cd "%s" && git push origin HEAD', notes_dir)
+						vim.fn.system(push_cmd)
+					end
+					
+					return true
+				else
+					vim.notify("Failed to commit reverted file", vim.log.levels.ERROR)
+					return false
+				end
+			else
+				vim.notify("Failed to stage reverted file", vim.log.levels.ERROR)
+				return false
+			end
+		else
+			vim.notify("Failed to open file for writing", vim.log.levels.ERROR)
+			return false
 		end
+	else
+		vim.notify("Failed to retrieve file from commit: " .. (result or "unknown error"), vim.log.levels.ERROR)
+		return false
 	end
-	
-	vim.notify("Failed to revert file", vim.log.levels.ERROR)
-	return false
 end
 
 return M
