@@ -20,11 +20,46 @@ local function create_note_path(name)
     return full_dir .. "/" .. filename
 end
 
-local function create_note_content(title)
+local function create_note_content(title, tags)
     local template = config.options.template
     local date = os.date("%Y-%m-%d %H:%M:%S")
+    local tag_string = tags and #tags > 0 and table.concat(tags, ", ") or ""
 
-    return template:gsub("{title}", title):gsub("{date}", date)
+    return template:gsub("{title}", title):gsub("{date}", date):gsub("{tags}", tag_string)
+end
+
+local function parse_tags_from_content(content)
+    local tags = {}
+    -- Look for "Tags: tag1, tag2, tag3" pattern
+    local tag_line = content:match("Tags:%s*([^\n\r]*)")
+    if tag_line and tag_line ~= "" then
+        for tag in tag_line:gmatch("([^,]+)") do
+            local trimmed = tag:match("^%s*(.-)%s*$") -- trim whitespace
+            if trimmed ~= "" then
+                table.insert(tags, trimmed)
+            end
+        end
+    end
+    return tags
+end
+
+local function get_note_metadata(file_path)
+    local file = io.open(file_path, "r")
+    if not file then return nil end
+
+    local content = file:read("*all")
+    file:close()
+
+    local title = content:match("^#%s*([^\n\r]*)")
+    local date = content:match("Date:%s*([^\n\r]*)")
+    local tags = parse_tags_from_content(content)
+
+    return {
+        title = title or vim.fn.fnamemodify(file_path, ":t:r"),
+        date = date,
+        tags = tags,
+        path = file_path
+    }
 end
 
 function M.create_note()
@@ -33,36 +68,49 @@ function M.create_note()
             return
         end
 
-        local note_path = create_note_path(name)
+        -- Ask for tags
+        vim.ui.input({ prompt = "Tags (comma-separated, optional): " }, function(tag_input)
+            local tags = {}
+            if tag_input and tag_input ~= "" then
+                for tag in tag_input:gmatch("([^,]+)") do
+                    local trimmed = tag:match("^%s*(.-)%s*$")
+                    if trimmed ~= "" then
+                        table.insert(tags, trimmed)
+                    end
+                end
+            end
 
-        -- Check if file already exists
-        if vim.fn.filereadable(note_path) == 1 then
-            vim.notify("Note already exists: " .. note_path, vim.log.levels.WARN)
-            vim.cmd("edit " .. note_path)
-            return
-        end
+            local note_path = create_note_path(name)
 
-        -- Create note with template
-        local content = create_note_content(name)
-        local file = io.open(note_path, "w")
-        if file then
-            file:write(content)
-            file:close()
-            vim.cmd("edit " .. note_path)
-            vim.notify("Created note: " .. note_path, vim.log.levels.INFO)
-        else
-            vim.notify("Failed to create note", vim.log.levels.ERROR)
-        end
+            -- Check if file already exists
+            if vim.fn.filereadable(note_path) == 1 then
+                vim.notify("Note already exists: " .. note_path, vim.log.levels.WARN)
+                vim.cmd("edit " .. note_path)
+                return
+            end
+
+            -- Create note with template
+            local content = create_note_content(name, tags)
+            local file = io.open(note_path, "w")
+            if file then
+                file:write(content)
+                file:close()
+                vim.cmd("edit " .. note_path)
+                vim.notify("Created note: " .. note_path, vim.log.levels.INFO)
+            else
+                vim.notify("Failed to create note", vim.log.levels.ERROR)
+            end
+        end)
     end)
 end
 
 function M.list_notes()
     local notes_dir = config.options.notes_dir
 
-    -- Use telescope if available, otherwise use vim.ui.select
+    -- Use telescope if available and enabled
     local has_telescope, telescope = pcall(require, 'telescope.builtin')
 
-    if has_telescope then
+    if has_telescope and config.options.use_telescope then
         telescope.find_files({
             prompt_title = "Notes",
             cwd = notes_dir,
@@ -77,17 +125,124 @@ function M.list_notes()
             return
         end
 
-        vim.ui.select(files, {
+        -- Get metadata for each file
+        local notes_with_metadata = {}
+        for _, file_path in ipairs(files) do
+            local metadata = get_note_metadata(file_path)
+            if metadata then
+                table.insert(notes_with_metadata, metadata)
+            end
+        end
+
+        vim.ui.select(notes_with_metadata, {
             prompt = "Select note:",
             format_item = function(item)
-                return vim.fn.fnamemodify(item, ":t:r") .. " (" .. vim.fn.fnamemodify(item, ":h:t") .. ")"
+                local tag_str = #item.tags > 0 and " [" .. table.concat(item.tags, ", ") .. "]" or ""
+                return item.title .. tag_str
             end
         }, function(choice)
                 if choice then
-                    vim.cmd("edit " .. choice)
+                    vim.cmd("edit " .. choice.path)
                 end
             end)
     end
+end
+
+function M.list_notes_by_tag()
+    local notes_dir = config.options.notes_dir
+    local files = vim.fn.systemlist("find " .. notes_dir .. " -name '*" .. config.options.file_extension .. "' -type f")
+
+    if #files == 0 then
+        vim.notify("No notes found", vim.log.levels.INFO)
+        return
+    end
+
+    -- Collect all tags and notes
+    local all_tags = {}
+    local notes_by_tag = {}
+
+    for _, file_path in ipairs(files) do
+        local metadata = get_note_metadata(file_path)
+        if metadata then
+            for _, tag in ipairs(metadata.tags) do
+                if not all_tags[tag] then
+                    all_tags[tag] = true
+                    notes_by_tag[tag] = {}
+                end
+                table.insert(notes_by_tag[tag], metadata)
+            end
+        end
+    end
+
+    local tag_list = {}
+    for tag, _ in pairs(all_tags) do
+        table.insert(tag_list, tag)
+    end
+    table.sort(tag_list)
+
+    if #tag_list == 0 then
+        vim.notify("No tagged notes found", vim.log.levels.INFO)
+        return
+    end
+
+    -- Use telescope for tag selection if available
+    local has_telescope, telescope = pcall(require, 'telescope.pickers')
+    local has_finders, finders = pcall(require, 'telescope.finders')
+    local has_conf, conf = pcall(require, 'telescope.config')
+    local has_actions, actions = pcall(require, 'telescope.actions')
+    local has_action_state, action_state = pcall(require, 'telescope.actions.state')
+
+    if has_telescope and has_finders and has_conf and has_actions and has_action_state and config.options.use_telescope then
+        telescope.new({}, {
+            prompt_title = "Select Tag",
+            finder = finders.new_table({
+                results = tag_list,
+                entry_maker = function(tag)
+                    return {
+                        value = tag,
+                        display = tag .. " (" .. #notes_by_tag[tag] .. " notes)",
+                        ordinal = tag,
+                    }
+                end
+            }),
+            sorter = conf.values.generic_sorter({}),
+            attach_mappings = function(prompt_bufnr, map)
+                actions.select_default:replace(function()
+                    local selection = action_state.get_selected_entry()
+                    actions.close(prompt_bufnr)
+                    if selection then
+                        M.show_notes_for_tag(selection.value, notes_by_tag[selection.value])
+                    end
+                end)
+                return true
+            end,
+        }):find()
+    else
+        -- Fallback to vim.ui.select
+        vim.ui.select(tag_list, {
+            prompt = "Select tag:",
+            format_item = function(tag)
+                return tag .. " (" .. #notes_by_tag[tag] .. " notes)"
+            end
+        }, function(choice)
+                if choice then
+                    M.show_notes_for_tag(choice, notes_by_tag[choice])
+                end
+            end)
+    end
+end
+
+function M.show_notes_for_tag(tag, notes)
+    vim.ui.select(notes, {
+        prompt = "Notes tagged with '" .. tag .. "':",
+        format_item = function(item)
+            return item.title .. " (" .. (item.date or "no date") .. ")"
+        end
+    }, function(choice)
+            if choice then
+                vim.cmd("edit " .. choice.path)
+            end
+        end)
 end
 
 function M.backup_notes()
@@ -101,7 +256,6 @@ end
 function M.show_file_history()
     local current_file = vim.fn.expand("%:p")
 
-    -- Check if current file is in notes directory
     if not current_file:match("^" .. config.options.notes_dir) then
         vim.notify("Current file is not a note", vim.log.levels.WARN)
         return
@@ -114,16 +268,51 @@ function M.show_file_history()
         return
     end
 
-    vim.ui.select(commits, {
-        prompt = "Select commit to view:",
-        format_item = function(item)
-            return item.full_line
-        end
-    }, function(choice)
-            if choice then
-                M.view_file_at_commit(current_file, choice.hash, choice.message)
+    -- Use telescope for history if available
+    local has_telescope, telescope = pcall(require, 'telescope.pickers')
+    local has_finders, finders = pcall(require, 'telescope.finders')
+    local has_conf, conf = pcall(require, 'telescope.config')
+    local has_actions, actions = pcall(require, 'telescope.actions')
+    local has_action_state, action_state = pcall(require, 'telescope.actions.state')
+
+    if has_telescope and has_finders and has_conf and has_actions and has_action_state and config.options.use_telescope then
+        telescope.new({}, {
+            prompt_title = "Note History",
+            finder = finders.new_table({
+                results = commits,
+                entry_maker = function(commit)
+                    return {
+                        value = commit,
+                        display = commit.full_line,
+                        ordinal = commit.full_line,
+                    }
+                end
+            }),
+            sorter = conf.values.generic_sorter({}),
+            attach_mappings = function(prompt_bufnr, map)
+                actions.select_default:replace(function()
+                    local selection = action_state.get_selected_entry()
+                    actions.close(prompt_bufnr)
+                    if selection then
+                        M.view_file_at_commit(current_file, selection.value.hash, selection.value.message)
+                    end
+                end)
+                return true
+            end,
+        }):find()
+    else
+        -- Fallback to vim.ui.select
+        vim.ui.select(commits, {
+            prompt = "Select commit to view:",
+            format_item = function(item)
+                return item.full_line
             end
-        end)
+        }, function(choice)
+                if choice then
+                    M.view_file_at_commit(current_file, choice.hash, choice.message)
+                end
+            end)
+    end
 end
 
 function M.view_file_at_commit(file_path, commit_hash, commit_message)
@@ -185,16 +374,51 @@ function M.show_notes_history()
         return
     end
 
-    vim.ui.select(commits, {
-        prompt = "Select commit to explore:",
-        format_item = function(item)
-            return item.full_line
-        end
-    }, function(choice)
-            if choice then
-                M.show_commit_files(choice.hash, choice.message)
+    -- Use telescope for commit history if available
+    local has_telescope, telescope = pcall(require, 'telescope.pickers')
+    local has_finders, finders = pcall(require, 'telescope.finders')
+    local has_conf, conf = pcall(require, 'telescope.config')
+    local has_actions, actions = pcall(require, 'telescope.actions')
+    local has_action_state, action_state = pcall(require, 'telescope.actions.state')
+
+    if has_telescope and has_finders and has_conf and has_actions and has_action_state and config.options.use_telescope then
+        telescope.new({}, {
+            prompt_title = "Notes History",
+            finder = finders.new_table({
+                results = commits,
+                entry_maker = function(commit)
+                    return {
+                        value = commit,
+                        display = commit.full_line,
+                        ordinal = commit.full_line,
+                    }
+                end
+            }),
+            sorter = conf.values.generic_sorter({}),
+            attach_mappings = function(prompt_bufnr, map)
+                actions.select_default:replace(function()
+                    local selection = action_state.get_selected_entry()
+                    actions.close(prompt_bufnr)
+                    if selection then
+                        M.show_commit_files(selection.value.hash, selection.value.message)
+                    end
+                end)
+                return true
+            end,
+        }):find()
+    else
+        -- Fallback to vim.ui.select
+        vim.ui.select(commits, {
+            prompt = "Select commit to explore:",
+            format_item = function(item)
+                return item.full_line
             end
-        end)
+        }, function(choice)
+                if choice then
+                    M.show_commit_files(choice.hash, choice.message)
+                end
+            end)
+    end
 end
 
 function M.show_commit_files(commit_hash, commit_message)
