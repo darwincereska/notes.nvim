@@ -24,23 +24,31 @@ end
 local function create_note_content(title, tags)
     local template = config.options.template
     local date = os.date("%Y-%m-%d %H:%M:%S")
-    local tag_string = tags and #tags > 0 and table.concat(tags, ", ") or ""
+    local tag_string = ""
+    
+    if tags and #tags > 0 then
+        local quoted_tags = {}
+        for _, tag in ipairs(tags) do
+            table.insert(quoted_tags, '"' .. tag .. '"')
+        end
+        tag_string = "[" .. table.concat(quoted_tags, ", ") .. "]"
+    else
+        tag_string = "[]"
+    end
 
     return template:gsub("{title}", title):gsub("{date}", date):gsub("{tags}", tag_string)
 end
 
 local function parse_tags_from_content(content)
     local tags = {}
-    -- Look for "Tags: tag1, tag2, tag3" pattern
     local tag_line = content:match("Tags:%s*([^\n\r]*)")
-    if tag_line and tag_line ~= "" then
-        for tag in tag_line:gmatch("([^,]+)") do
-            local trimmed = tag:match("^%s*(.-)%s*$") -- trim whitespace
-            if trimmed ~= "" then
-                table.insert(tags, trimmed)
-            end
+    
+    if tag_line and tag_line ~= "" and tag_line ~= "[]" then
+        for tag in tag_line:gmatch('"([^"]+)"') do
+            table.insert(tags, tag)
         end
     end
+    
     return tags
 end
 
@@ -281,6 +289,22 @@ end
 
 function M.fetch_notes()
     git.fetch()
+end
+
+function M.search_notes()
+    local notes_dir = config.options.notes_dir
+    
+    local has_telescope, telescope = pcall(require, 'telescope.builtin')
+    
+    if has_telescope and config.options.use_telescope then
+        telescope.live_grep({
+            prompt_title = "Search Notes",
+            cwd = notes_dir,
+            search_dirs = { notes_dir }
+        })
+    else
+        ui.notify("Telescope is required for search", vim.log.levels.WARN)
+    end
 end
 
 function M.show_file_history()
