@@ -81,10 +81,18 @@ function M.create_note()
             prompt = "Add tags?",
             choices = { 'Yes', 'No' }
         }, function(choice)
+            if not choice then
+                return
+            end
+            
             if choice == 'Yes' then
                 ui.input({ prompt = "Tags (comma-separated)" }, function(tag_input)
+                    if tag_input == nil then
+                        return
+                    end
+                    
                     local tags = {}
-                    if tag_input and tag_input ~= "" then
+                    if tag_input ~= "" then
                         for tag in tag_input:gmatch("([^,]+)") do
                             local trimmed = tag:match("^%s*(.-)%s*$")
                             if trimmed ~= "" then
@@ -94,7 +102,7 @@ function M.create_note()
                     end
                     M._create_note_with_tags(name, tags)
                 end)
-            else
+            elseif choice == 'No' then
                 M._create_note_with_tags(name, {})
             end
         end)
@@ -163,11 +171,7 @@ function M.list_notes()
                 end
             }),
             sorter = conf.values.generic_sorter({}),
-            previewer = previewers.new_termopen_previewer({
-                get_command = function(entry)
-                    return { 'cat', entry.path }
-                end
-            }),
+            previewer = previewers.cat.new({}),
             attach_mappings = function(prompt_bufnr)
                 actions.select_default:replace(function()
                     local selection = action_state.get_selected_entry()
@@ -249,6 +253,7 @@ function M.list_notes_by_tag()
                         value = tag,
                         display = tag .. " (" .. #notes_by_tag[tag] .. " notes)",
                         ordinal = tag,
+                        path = nil,
                     }
                 end
             }),
@@ -331,6 +336,7 @@ function M.show_file_history()
                         value = commit,
                         display = commit.full_line,
                         ordinal = commit.full_line,
+                        path = nil,
                     }
                 end
             }),
@@ -437,6 +443,7 @@ function M.show_notes_history()
                         value = commit,
                         display = commit.full_line,
                         ordinal = commit.full_line,
+                        path = nil,
                     }
                 end
             }),
