@@ -111,6 +111,12 @@ function M.get_log(opts)
 	return M.parse_log_output(result, opts.oneline)
 end
 
+-- Helper function to strip ANSI color codes
+local function strip_ansi(str)
+	-- Pattern matches ANSI escape sequences like \27[0m, \27[1;32m, etc.
+	return str:gsub("\27%[[%d;]*m", "")
+end
+
 -- Parse notevc log output into structured data
 function M.parse_log_output(output, is_oneline)
 	local commits = {}
@@ -119,8 +125,11 @@ function M.parse_log_output(output, is_oneline)
 	local current_commit = nil
 	
 	for _, line in ipairs(lines) do
+		-- Strip ANSI color codes before parsing
+		local clean_line = strip_ansi(line)
+		
 		-- Match commit hash line (starts with commit hash)
-		local hash = line:match("^commit%s+([a-f0-9]+)")
+		local hash = clean_line:match("^commit%s+([a-f0-9]+)")
 		if hash then
 			if current_commit then
 				table.insert(commits, current_commit)
@@ -133,19 +142,19 @@ function M.parse_log_output(output, is_oneline)
 			}
 		elseif current_commit then
 			-- Parse other fields
-			local author = line:match("^Author:%s+(.+)")
+			local author = clean_line:match("^Author:%s+(.+)")
 			if author then
 				current_commit.author = author
 			end
 			
-			local date = line:match("^Date:%s+(.+)")
+			local date = clean_line:match("^Date:%s+(.+)")
 			if date then
 				current_commit.date = date
 			end
 			
 			-- Message lines are indented
-			if line:match("^%s+%S") then
-				local msg = line:match("^%s+(.+)")
+			if clean_line:match("^%s+%S") then
+				local msg = clean_line:match("^%s+(.+)")
 				if msg and msg ~= "" then
 					if current_commit.message ~= "" then
 						current_commit.message = current_commit.message .. " " .. msg
