@@ -136,24 +136,24 @@ function M.delete_note(opts)
                     vim.ui.select({ "Yes", "No" }, {
                         prompt = "Delete note: " .. filepath .. "?",
                     }, function(choice)
-						if choice == "Yes" then
-							local notes_dir = core.get_notes_dir()
-							local relative_path = filepath:gsub("^" .. notes_dir .. "/", "")
-							local notevc_enabled = require("notes").config.notevc_enabled
+                            if choice == "Yes" then
+                                local notes_dir = core.get_notes_dir()
+                                local relative_path = filepath:gsub("^" .. notes_dir .. "/", "")
+                                local notevc_enabled = require("notes").config.notevc_enabled
 
-							if vim.fn.delete(filepath) == 0 then
-								vim.notify("Note deleted: " .. filepath, vim.log.levels.INFO)
-								
-								-- Commit the deletion if notevc is enabled
-								if notevc_enabled then
-									local frontmatter = core.parse_frontmatter(filepath)
-									local title = frontmatter and frontmatter.title or "note"
-									notevc.commit("Deleted note: " .. title)
-								end
-							else
-								vim.notify("Failed to delete note", vim.log.levels.ERROR)
-							end
-						end
+                                if vim.fn.delete(filepath) == 0 then
+                                    vim.notify("Note deleted: " .. filepath, vim.log.levels.INFO)
+
+                                    -- Commit the deletion if notevc is enabled
+                                    if notevc_enabled then
+                                        local frontmatter = core.parse_frontmatter(filepath)
+                                        local title = frontmatter and frontmatter.title or "note"
+                                        notevc.commit("Deleted note: " .. title)
+                                    end
+                                else
+                                    vim.notify("Failed to delete note", vim.log.levels.ERROR)
+                                end
+                            end
                         end)
                 end)
             end
