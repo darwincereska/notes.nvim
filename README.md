@@ -1,6 +1,6 @@
 # notes.nvim
 
-A Neovim plugin for managing markdown notes with git version control, Telescope fuzzy finding, and an interactive commit browser using NUI.
+A Neovim plugin for managing markdown notes with **block-level version control** using NoteVC, Telescope fuzzy finding, and an interactive commit browser using NUI.
 
 ## Features
 
@@ -8,13 +8,15 @@ A Neovim plugin for managing markdown notes with git version control, Telescope 
 - 📁 Organize notes by date (Year/Month/Day/title.md structure)
 - 🔍 Browse and search notes with Telescope
 - 🏷️ Filter notes by tags
-- 🔄 Git version control with automatic backup
-- 🗑️ Delete notes with confirmation (git-aware)
-- 🌐 Optional remote repository sync
+- 🧱 **Block-level version control** - Track changes at heading granularity
+- 🔄 Automatic version control with NoteVC
+- 🗑️ Delete notes with confirmation (version-aware)
 - 📜 Interactive commit browser with NUI menus
 - ⏪ Revert notes to previous versions from commit browser
-- 🔀 View diffs between commits
-- 📂 Browse files in specific commits
+- 🎯 **Revert specific blocks** - Restore individual sections without affecting entire file
+- 🔀 View diffs between commits and blocks
+- 📂 Browse blocks in files and commits
+- 🔬 **Block history tracking** - See which sections changed over time
 - ⚡ Async operations with Plenary
 
 ## Requirements
@@ -23,7 +25,7 @@ A Neovim plugin for managing markdown notes with git version control, Telescope 
 - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
 - [plenary.nvim](https://github.com/nvim-lua/plenary.nvim)
 - [nui.nvim](https://github.com/MunifTanjim/nui.nvim)
-- git (for version control features)
+- [notevc](https://github.com/darwincereska/notevc) (for block-level version control)
 
 ## Installation
 
@@ -40,8 +42,8 @@ A Neovim plugin for managing markdown notes with git version control, Telescope 
   config = function()
     require("notes").setup({
       notes_dir = vim.fn.expand("~/.notes"),
-      git_enabled = true,
-      git_remote = "git@github.com:username/notes.git", -- optional
+      notevc_enabled = true,
+      notevc_path = "notevc", -- Path to notevc binary (optional, defaults to "notevc")
     })
   end,
 }
@@ -60,8 +62,8 @@ use {
   config = function()
     require("notes").setup({
       notes_dir = vim.fn.expand("~/.notes"),
-      git_enabled = true,
-      git_remote = "git@github.com:username/notes.git", -- optional
+      notevc_enabled = true,
+      notevc_path = "notevc", -- Path to notevc binary (optional, defaults to "notevc")
     })
   end,
 }
@@ -74,8 +76,8 @@ Default configuration:
 ```lua
 {
   notes_dir = "~/.notes",        -- Directory to store notes
-  git_enabled = true,             -- Enable git integration
-  git_remote = nil,               -- Optional remote repository URL
+  notevc_enabled = true,          -- Enable notevc block-level version control
+  notevc_path = "notevc",         -- Path to notevc binary (finds in PATH by default)
 }
 ```
 
@@ -106,21 +108,20 @@ Open Telescope picker to browse all notes with preview. Press `<CR>` to open a n
 Open Telescope picker showing only notes that have tags. Filter and search by tag names with live preview.
 
 #### `:NotesBackup`
-Commit all changes to git and push to remote (if configured). Automatically stages all files.
-
-#### `:NotesFetch`
-Fetch updates from the remote repository (if configured).
+Commit all changes to notevc repository. Automatically includes all changed notes with block-level tracking.
 
 #### `:NoteDelete`
-Open Telescope picker to select a note for deletion. Confirmation prompt will appear before deletion. If git is enabled, uses `git rm` to properly remove the file from version control and commits the change.
+Open Telescope picker to select a note for deletion. Confirmation prompt will appear before deletion. If notevc is enabled, commits the deletion to version history.
 
 #### `:NoteHistory`
 Interactive commit browser for the currently open note using Telescope + NUI menus:
 1. Browse commits with Telescope (vim-navigable with `j`/`k`)
 2. Press `Enter` to open an interactive menu with options:
    - **View at this commit** - Opens the note content in a buffer
+   - **View blocks changed** - Shows which heading sections changed in this commit
    - **Revert to this commit** - Restores note to selected version (with confirmation)
-   - **Show diff** - Displays diff between selected commit and HEAD
+   - **Revert specific block** - Restore just one heading section from this commit
+   - **Show diff** - Displays diff between selected commit and current state
 
 Only works when the current buffer is a note file.
 
@@ -136,6 +137,22 @@ When browsing files in a commit:
 - Press `Enter` to open menu with:
   - **View file at this commit** - Opens file content in buffer
   - **Revert file to this commit** - Restores file (with confirmation)
+
+#### `:NoteBlocks`
+Browse all blocks (heading sections) in the current note:
+- Shows hierarchical view of all headings in the note
+- Preview shows the content of each section
+- Select a block to:
+  - **View block history** - See all commits that modified this section
+  - **Jump to block** - Navigate to that heading in the file
+
+Only works when the current buffer is a note file.
+
+#### `:NoteStatus`
+Shows the current status of the notevc repository:
+- Lists which notes have been modified
+- Shows which blocks within files have changed
+- Displays files ready to commit
 
 ## File Structure
 
@@ -170,21 +187,31 @@ date: 2025-10-20 14:30:00
 Your note content here...
 ```
 
-## Git Integration
+## NoteVC Integration
 
-When `git_enabled` is `true`:
-- A git repository is automatically initialized in `notes_dir`
-- Notes are automatically committed after creation and deletion
-- If `git_remote` is set, commits are automatically pushed
+When `notevc_enabled` is `true`:
+- A notevc repository is automatically initialized in `notes_dir/.notevc`
+- Notes are automatically version-controlled at the block level after creation and deletion
+- Each heading section is tracked independently
 - Full commit history accessible via `:NoteHistory` and `:NotesHistory`
-- Interactive browsing with previews and diffs
-- Easy reversion to previous versions
+- Interactive browsing with previews and block-level diffs
+- Easy reversion to previous versions (entire file or specific blocks)
+- Efficient storage with automatic compression
 
 You can manually trigger backups with `:NotesBackup`.
 
+### Block-Level Version Control
+
+NoteVC splits markdown files into blocks based on headings. This means:
+- See exactly which sections changed in each commit
+- Restore individual heading sections without affecting the rest of the file
+- Track the history of specific sections over time
+- More efficient storage - only changed blocks are stored
+- Perfect for large, evolving notes and documentation
+
 ## Interactive Commit Browser
 
-The commit browser provides a powerful interface using Telescope and NUI for exploring your notes history:
+The commit browser provides a powerful interface using Telescope and NUI for exploring your notes history with block-level granularity:
 
 ### Single Note History (`:NoteHistory`)
 1. **Telescope View**: Browse commits with live preview
@@ -194,13 +221,15 @@ The commit browser provides a powerful interface using Telescope and NUI for exp
 
 2. **NUI Action Menu**: Press `Enter` to open interactive menu
    ```
-   ┌─ Actions ─────────────────────┐
-   │ View at this commit            │
-   │ Revert to this commit          │
-   │ Show diff                      │
-   │ ──────────────────────────     │
-   │ Cancel                         │
-   └────────────────────────────────┘
+   ┌─ Actions ─────────────────────────┐
+   │ View at this commit                │
+   │ View blocks changed                │  ← Block-level view
+   │ Revert to this commit              │
+   │ Revert specific block              │  ← Surgical restoration
+   │ Show diff                          │
+   │ ────────────────────────────────── │
+   │ Cancel                             │
+   └────────────────────────────────────┘
    ```
    - Navigate with `j`/`k`
    - Select with `Enter`
@@ -230,31 +259,31 @@ The commit browser provides a powerful interface using Telescope and NUI for exp
 
 ## Examples
 
-### Basic setup without remote
+### Basic setup
 
 ```lua
 require("notes").setup({
   notes_dir = vim.fn.expand("~/Documents/notes"),
-  git_enabled = true,
+  notevc_enabled = true,
 })
 ```
 
-### Setup with GitHub remote
+### Custom notevc binary path
 
 ```lua
 require("notes").setup({
   notes_dir = vim.fn.expand("~/.notes"),
-  git_enabled = true,
-  git_remote = "git@github.com:username/my-notes.git",
+  notevc_enabled = true,
+  notevc_path = "/usr/local/bin/notevc", -- Custom path to notevc binary
 })
 ```
 
-### Disable git
+### Disable version control
 
 ```lua
 require("notes").setup({
   notes_dir = vim.fn.expand("~/.notes"),
-  git_enabled = false,
+  notevc_enabled = false,
 })
 ```
 
@@ -270,6 +299,8 @@ vim.keymap.set("n", "<leader>nb", ":NotesBackup<CR>", { desc = "Backup notes" })
 vim.keymap.set("n", "<leader>nd", ":NoteDelete<CR>", { desc = "Delete note" })
 vim.keymap.set("n", "<leader>nh", ":NoteHistory<CR>", { desc = "Note history" })
 vim.keymap.set("n", "<leader>nH", ":NotesHistory<CR>", { desc = "All notes history" })
+vim.keymap.set("n", "<leader>nB", ":NoteBlocks<CR>", { desc = "Browse note blocks" })
+vim.keymap.set("n", "<leader>ns", ":NoteStatus<CR>", { desc = "Repository status" })
 ```
 
 ## License

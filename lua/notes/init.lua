@@ -2,8 +2,8 @@ local M = {}
 
 M.config = {
 	notes_dir = vim.fn.expand("~/.notes"),
-	git_enabled = true,
-	git_remote = nil,
+	notevc_enabled = true,
+	notevc_path = "notevc", -- Path to notevc binary
 }
 
 function M.setup(opts)
@@ -14,8 +14,8 @@ function M.setup(opts)
 		vim.fn.mkdir(notes_dir, "p")
 	end
 
-	if M.config.git_enabled then
-		require("notes.git").init_repo()
+	if M.config.notevc_enabled then
+		require("notes.notevc").init_repo()
 	end
 end
 
